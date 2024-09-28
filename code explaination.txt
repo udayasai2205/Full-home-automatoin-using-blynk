@@ -1,0 +1,218 @@
+
+### Code Breakdown
+
+
+#include <LiquidCrystal_I2C.h>
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <DHT.h>
+
+- **Includes Libraries**: 
+  - `LiquidCrystal_I2C.h`: Library for controlling the I2C LCD display.
+  - `BLYNK_PRINT Serial`: Enables Blynk printing to the Serial Monitor for debugging.
+  - `ESP8266WiFi.h`: Library for Wi-Fi functionality on the ESP8266.
+  - `BlynkSimpleEsp8266.h`: Blynk library for connecting the ESP8266 to Blynk’s cloud.
+  - `DHT.h`: Library for interfacing with DHT11 temperature and humidity sensor.
+
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+- **LCD Initialization**: Creates an instance of the LCD display with the I2C address `0x27` and a size of 16 columns and 2 rows.
+
+
+char auth[] = "Fqk2QVveNPctAQPSnS2a0tzoXLC2KvBN"; // Auth token
+char ssid[] = ""; // Wi-Fi SSID
+char pass[] = ""; // Wi-Fi Password
+
+- **Credentials**: Stores the Blynk authentication token, Wi-Fi SSID, and password. These need to be filled in for the program to work.
+
+
+DHT dht(D3, DHT11); //(sensor pin,sensor type)
+BlynkTimer timer;
+bool pirbutton = 0;
+
+- **DHT Sensor**: Initializes the DHT sensor on pin D3 and sets it as a DHT11 type.
+- **Blynk Timer**: Creates a timer to handle periodic tasks.
+- **PIR Button State**: A boolean variable to keep track of the PIR sensor status.
+
+#define Buzzer D0
+#define MQ2 A0
+#define trig D4
+#define echo D5
+#define PIR D6
+#define relay1 D7
+#define relay2 D8
+
+- **Pin Definitions**: Assigns specific pins for the buzzer, MQ2 gas sensor, ultrasonic sensor (trig and echo), PIR sensor, and two relays.
+
+### Blynk Virtual Button
+
+BLYNK_WRITE(V0) {
+  pirbutton = param.asInt();
+}
+
+- **Blynk Button Handling**: This function is triggered when a virtual button on the Blynk app (V0) is pressed. It updates the `pirbutton` variable based on the button state.
+
+### Setup Function
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+
+- **Serial Communication**: Initializes Serial communication at 9600 baud for debugging.
+- **LCD Initialization**: Initializes and turns on the backlight of the LCD.
+
+
+  pinMode(Buzzer, OUTPUT);
+  pinMode(PIR, INPUT);
+  pinMode(trig, OUTPUT);
+  pinMode(echo, INPUT);
+  pinMode(relay1, OUTPUT);
+  pinMode(relay2, OUTPUT);
+  digitalWrite(relay1, HIGH);
+  digitalWrite(relay2, HIGH);
+
+- **Pin Modes**: Sets up the pins as input or output as required.
+- **Relay Initialization**: Sets the relays to HIGH (off state).
+
+
+  Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+  dht.begin();
+
+- **Blynk Initialization**: Connects to the Blynk cloud using the provided credentials.
+- **DHT Initialization**: Begins the DHT sensor.
+
+  lcd.setCursor(0, 0);
+  lcd.print("Home Automation");
+  lcd.setCursor(4, 1);
+  lcd.print("System");
+  delay(4000);
+  lcd.clear();
+
+- **Initial LCD Display**: Shows a welcome message on the LCD for 4 seconds before clearing it.
+
+
+  timer.setInterval(100L, gassensor);
+  timer.setInterval(100L, DHT11sensor);
+  timer.setInterval(100L, pirsensor);
+  timer.setInterval(100L, ultrasonic);
+}
+
+- **Timer Setup**: Configures the timer to call the specified functions every 100 milliseconds for sensor readings and actions.
+
+### Sensor Functions
+
+void gassensor() {
+  int value = analogRead(MQ2);
+  Serial.println(value);
+  value = map(value, 0, 1024, 0, 100);
+  if (value <= 55) {
+    digitalWrite(Buzzer, LOW);
+  } else if (value > 55) {
+    Blynk.notify("Warning! Gas leak detected");
+    digitalWrite(Buzzer, HIGH);
+  }
+  Blynk.virtualWrite(V1, value);
+  lcd.setCursor(0, 0);
+  lcd.print("G:");
+  lcd.print(" ");
+  lcd.print(value);
+}
+
+- **Gas Sensor Function**: Reads the analog value from the MQ2 sensor, maps it to a percentage, and triggers the buzzer if a gas leak is detected. Also updates the Blynk app and LCD with the current gas level.
+
+
+void DHT11sensor() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+  Blynk.virtualWrite(V2, t);
+  Blynk.virtualWrite(V3, h);
+  
+  lcd.setCursor(8, 0);
+  lcd.print("T:");
+  lcd.print(t);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("H:");
+  lcd.print(h);
+}
+
+- **DHT11 Function**: Reads temperature and humidity values, checks for errors, and sends data to Blynk and updates the LCD display.
+
+
+void pirsensor() {
+  bool value = digitalRead(PIR);
+  if (pirbutton == 1) {
+    if (value == 0) {
+      digitalWrite(Buzzer, LOW);
+    } else if (value == 1) {
+      Blynk.notify("Warning! Please check your security system");
+      digitalWrite(Buzzer, HIGH);
+    }
+  }
+}
+
+- **PIR Sensor Function**: Reads the PIR sensor. If motion is detected and the PIR button is active, it triggers an alert via the buzzer and Blynk notification.
+
+
+void ultrasonic() {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(4);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  long t = pulseIn(echo, HIGH);
+  long cm = t / 29 / 2;
+  Blynk.virtualWrite(V4, cm);
+  
+  lcd.setCursor(8, 1);
+  lcd.print("W:");
+  lcd.print(cm);
+  lcd.print("  ");
+}
+
+- **Ultrasonic Sensor Function**: Sends a trigger pulse to the ultrasonic sensor, reads the echo time, calculates distance, and updates both Blynk and the LCD.
+
+### Blynk Relay Controls
+
+BLYNK_WRITE(V5) {
+ bool RelayOne = param.asInt();
+  if (RelayOne == 1) {
+    digitalWrite(relay1, LOW);
+  } else {
+    digitalWrite(relay1, HIGH);
+  }
+}
+
+- **Relay 1 Control**: Handles button input from Blynk to turn Relay 1 on/off based on its state.
+
+
+BLYNK_WRITE(V6) {
+ bool RelayTwo = param.asInt();
+  if (RelayTwo == 1) {
+    digitalWrite(relay2, LOW);
+  } else {
+    digitalWrite(relay2, HIGH);
+  }
+}
+
+- **Relay 2 Control**: Similar to Relay 1, this function controls Relay 2 based on user input from the Blynk app.
+
+### Loop Function
+
+void loop() {
+  Blynk.run(); // Run the Blynk library
+  timer.run(); // Run the Blynk timer
+}
+
+- **Main Loop**: Continuously runs the Blynk library and timer to ensure that the app remains responsive and that sensor functions are executed at the specified intervals.
+
+### Summary
+This code combines multiple sensors and control elements into a cohesive home automation system. It communicates with the Blynk app for remote monitoring and control, providing functionalities like gas leak detection, temperature and humidity monitoring, motion detection, and appliance control through relays. The LCD display serves as a local interface to show current sensor readings.
